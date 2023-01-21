@@ -16,9 +16,9 @@ fi
 eval "$(conda shell.bash hook)"
 
 # Create deepchem environment
-conda config --set always_yes yes
-conda create --name deepchem python=$1
-conda install -c conda-forge conda-merge
+mamba config --set always_yes yes
+mamba create --name deepchem python=$1
+mamba install -c conda-forge conda-merge
 
 dir="$PWD/requirements"
 if [ "$2" = "gpu" ];
@@ -36,4 +36,4 @@ else
 fi
 
 # Install all dependencies
-conda env update --file $PWD/env.yml
+mamba env update --file $PWD/env.yml

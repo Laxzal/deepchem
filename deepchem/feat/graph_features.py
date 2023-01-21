@@ -1055,3 +1055,159 @@ class WeaveFeaturizer(MolecularFeaturizer):
             max_pair_distance=self.max_pair_distance)
 
         return WeaveMol(nodes, pairs, pair_edges)
+    
+class WeaveFeaturizer_Custom(MolecularFeaturizer):
+    """This class implements the featurization to implement Weave convolutions.
+
+    Weave convolutions were introduced in [1]_. Unlike Duvenaud graph
+    convolutions, weave convolutions require a quadratic matrix of interaction
+    descriptors for each pair of atoms. These extra descriptors may provide for
+    additional descriptive power but at the cost of a larger featurized dataset.
+
+
+    Examples
+    --------
+    >>> import deepchem as dc
+    >>> mols = ["CCC"]
+    >>> featurizer = dc.feat.WeaveFeaturizer()
+    >>> features = featurizer.featurize(mols)
+    >>> type(features[0])
+    <class 'deepchem.feat.mol_graphs.WeaveMol'>
+    >>> features[0].get_num_atoms() # 3 atoms in compound
+    3
+    >>> features[0].get_num_features() # feature size
+    75
+    >>> type(features[0].get_atom_features())
+    <class 'numpy.ndarray'>
+    >>> features[0].get_atom_features().shape
+    (3, 75)
+    >>> type(features[0].get_pair_features())
+    <class 'numpy.ndarray'>
+    >>> features[0].get_pair_features().shape
+    (9, 14)
+
+
+    References
+    ----------
+    .. [1] Kearnes, Steven, et al. "Molecular graph convolutions: moving beyond
+        fingerprints." Journal of computer-aided molecular design 30.8 (2016):
+        595-608.
+
+    Note
+    ----
+    This class requires RDKit to be installed.
+    """
+
+    name = ['weave_mol']
+
+    def __init__(self,
+                 graph_distance: bool = True,
+                 explicit_H: bool = False,
+                 use_chirality: bool = False,
+                 max_pair_distance: Optional[int] = None):
+        """Initialize this featurizer with set parameters.
+    
+        Parameters
+        ----------
+        graph_distance: bool, (default True)
+            If True, use graph distance for distance features. Otherwise, use
+            Euclidean distance. Note that this means that molecules that this
+            featurizer is invoked on must have valid conformer information if this
+            option is set.
+        explicit_H: bool, (default False)
+            If true, model hydrogens in the molecule.
+        use_chirality: bool, (default False)
+            If true, use chiral information in the featurization
+        max_pair_distance: Optional[int], (default None)
+            This value can be a positive integer or None. This
+            parameter determines the maximum graph distance at which pair
+            features are computed. For example, if `max_pair_distance==2`,
+            then pair features are computed only for atoms at most graph
+            distance 2 apart. If `max_pair_distance` is `None`, all pairs are
+            considered (effectively infinite `max_pair_distance`)
+        """
+        # Distance is either graph distance(True) or Euclidean distance(False,
+        # only support datasets providing Cartesian coordinates)
+        self.graph_distance = graph_distance
+        # Set dtype
+        self.dtype = object
+        # If includes explicit hydrogens
+        self.explicit_H = explicit_H
+        # If uses use_chirality
+        self.use_chirality = use_chirality
+        if isinstance(max_pair_distance, int) and max_pair_distance <= 0:
+            raise ValueError(
+                "max_pair_distance must either be a positive integer or None")
+        self.max_pair_distance = max_pair_distance
+        if self.use_chirality:
+            self.bt_len = int(GraphConvConstants.bond_fdim_base) + len(
+                GraphConvConstants.possible_bond_stereo)
+        else:
+            self.bt_len = int(GraphConvConstants.bond_fdim_base)
+
+    def _featurize(self, mol, **kwargs):
+        """Encodes mol as a WeaveMol object."""
+        # Atom features
+        idx_nodes = [(a.GetIdx(),
+                      atom_features(a,
+                                    explicit_H=self.explicit_H,
+                                    use_chirality=self.use_chirality))
+                     for a in mol.GetAtoms()]
+        idx_nodes.sort()  # Sort by ind to ensure same order as rd_kit
+        idx, nodes = list(zip(*idx_nodes))
+
+        # Stack nodes into an array
+        if kwargs.get('temperature'):
+            nodes = np.vstack((nodes,kwargs['temperature']))
+        else:
+            nodes = np.vstack(nodes)
+
+        # Get bond lists
+        bond_features_map = {}
+        for b in mol.GetBonds():
+            bond_features_map[tuple(
+                sorted([b.GetBeginAtomIdx(),
+                        b.GetEndAtomIdx()
+                       ]))] = bond_features(b, use_chirality=self.use_chirality)
+
+        # Get canonical adjacency list
+        bond_adj_list = [[] for mol_id in range(len(nodes))]
+        for bond in bond_features_map.keys():
+            bond_adj_list[bond[0]].append(bond[1])
+            bond_adj_list[bond[1]].append(bond[0])
+
+        # Calculate pair features
+        pairs, pair_edges = pair_features(
+            mol,
+            bond_features_map,
+            bond_adj_list,
+            bt_len=self.bt_len,
+            graph_distance=self.graph_distance,
+            max_pair_distance=self.max_pair_distance)
+
+        return WeaveMol(nodes, pairs, pair_edges)
+
+
+
+
+
+# Create an instance of the custom featurizer
+
+# # Featurize the molecules
+# molecular_features = custom_weave_featurizer.featurize(molecules)
+
+# #In this example, I am using the SMILES string of the molecule as a key to access the additional information. And the input molecules are passed as the list of RDKit molecule objects.
+# #Please let me know if there's anything else I can help you with.
+
+
+# # Create an instance of the custom featurizer
+# additional_info = {'molecule1': [1, 2, 3], 'molecule2': [4, 5, 6]}
+# custom_weave_featurizer = CustomWeaveFeaturizer(additional_info)
+
+# # Featurize the molecules
+# molecular_features = custom_weave_featurizer.featurize(molecules)
+
+
+# featurise = WeaveFeaturizer_Custom()
+# test = featurise.featurize(datapoints=['C.CC'], temperature = ['200'])
+# print(test)
